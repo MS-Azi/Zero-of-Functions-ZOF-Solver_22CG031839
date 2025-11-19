@@ -155,7 +155,6 @@
   methodSel.addEventListener('change', updateInputs);
   window.addEventListener('load', updateInputs);
 
-  // Reset behavior: keep method selection and hide/show accordingly
   document.getElementById('reset-btn').addEventListener('click', () => {
     setTimeout(updateInputs, 10);
   });
