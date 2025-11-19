@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ZOF - Root Finder</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>ZOF — Root Finder</h1>
+      <p class="subtitle">Choose a numerical method, enter the function and parameters, then compute iterations.</p>
+    </header>
+
+    {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" id="zof-form" class="form-grid">
+      <div class="field">
+        <label for="expr">Function f(x)</label>
+        <input id="expr" name="expr" placeholder="e.g. x**3 - 2*x - 5" value="{{ request.form.expr or '' }}" required>
+        <small>Use Python syntax. `math` functions available (e.g. sin, cos, exp).</small>
+      </div>
+
+      <div class="field">
+        <label for="method">Method</label>
+        <select id="method" name="method" required>
+          <option value="bisection" {% if request.form.method=='bisection' %}selected{% endif %}>Bisection</option>
+          <option value="regula" {% if request.form.method=='regula' %}selected{% endif %}>Regula Falsi</option>
+          <option value="secant" {% if request.form.method=='secant' %}selected{% endif %}>Secant</option>
+          <option value="newton" {% if request.form.method=='newton' %}selected{% endif %}>Newton–Raphson</option>
+          <option value="fixed" {% if request.form.method=='fixed' %}selected{% endif %}>Fixed Point Iteration</option>
+          <option value="modified" {% if request.form.method=='modified' %}selected{% endif %}>Modified Secant</option>
+        </select>
+      </div>
+
+      <!-- Interval inputs (a, b) -->
+      <div id="intervals" class="field">
+        <label>Interval endpoints</label>
+        <div class="inline-inputs">
+          <input name="a" placeholder="a (left)" value="{{ request.form.a or '' }}">
+          <input name="b" placeholder="b (right)" value="{{ request.form.b or '' }}">
+        </div>
+      </div>
+
+      <!-- Point inputs (x0, x1) -->
+      <div id="points" class="field" style="display:none;">
+        <label>Initial points</label>
+        <div class="inline-inputs">
+          <input name="x0" placeholder="x0" value="{{ request.form.x0 or '' }}">
+          <input name="x1" placeholder="x1 (if applicable)" value="{{ request.form.x1 or '' }}">
+        </div>
+      </div>
+
+      <!-- Extra inputs: derivative, iteration function g(x), delta -->
+      <div id="extra" class="field" style="display:none;">
+        <label for="dexpr">Derivative / Iteration / Delta</label>
+
+        <input id="dexpr" name="dexpr" placeholder="for Newton: f'(x) — e.g. 3*x**2 - 2" value="{{ request.form.dexpr or '' }}">
+        <small>For Newton: enter f'(x). For Fixed Point: enter g(x). For Modified Secant: enter delta in the 'delta' field below.</small>
+
+        <div class="inline-inputs" style="margin-top:8px;">
+          <input name="gexpr" placeholder="g(x) for fixed-point (optional) " value="{{ request.form.gexpr or '' }}">
+          <input name="delta" placeholder="delta for Modified Secant (e.g. 1e-3)" value="{{ request.form.delta or '' }}">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="tol">Tolerance</label>
+        <input id="tol" name="tol" value="{{ request.form.tol or '1e-6' }}" placeholder="e.g. 1e-6">
+      </div>
+
+      <div class="field">
+        <label for="max_iter">Max iterations</label>
+        <input id="max_iter" name="max_iter" value="{{ request.form.max_iter or '50' }}" placeholder="e.g. 50">
+      </div>
+
+      <div class="field actions">
+        <button type="submit" class="btn">Compute</button>
+        <button type="reset" class="btn btn-ghost" id="reset-btn">Reset</button>
+      </div>
+    </form>
+
+    {% if result %}
+      <section class="results">
+        <h2>Iteration Output</h2>
+        <p class="muted">Showing computed rows returned by the method (first 200 rows if large).</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                {% for k in result[0].keys() %}<th>{{ k }}</th>{% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in result %}
+                <tr>
+                  {% for v in row.values() %}
+                    <td>{{ ('%.8g'|format(v) if (v is number) else v) }}</td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% endif %}
+
+    <footer>
+      <small>Tip: use small tolerances like <code>1e-6</code> and sensible initial guesses.</small>
+    </footer>
+  </div>
+
+<script>
+  const methodSel = document.getElementById('method');
+  const intervals = document.getElementById('intervals');
+  const points = document.getElementById('points');
+  const extra = document.getElementById('extra');
+
+  function updateInputs() {
+    const m = methodSel.value;
+    if (['bisection','regula'].includes(m)) {
+      intervals.style.display = 'block';
+      points.style.display = 'none';
+      extra.style.display = 'none';
+    } else if (m === 'secant') {
+      intervals.style.display = 'none';
+      points.style.display = 'block';
+      extra.style.display = 'none';
+    } else if (m === 'newton') {
+      intervals.style.display = 'none';
+      points.style.display = 'block';
+      extra.style.display = 'block';
+      document.getElementById('dexpr').placeholder = "Enter derivative f'(x) — e.g. 3*x**2 - 2";
+    } else if (m === 'fixed') {
+      intervals.style.display = 'none';
+      points.style.display = 'block';
+      extra.style.display = 'block';
+      document.getElementById('dexpr').placeholder = "Enter iteration g(x) so x = g(x)";
+    } else if (m === 'modified') {
+      intervals.style.display = 'none';
+      points.style.display = 'block';
+      extra.style.display = 'block';
+      document.getElementById('dexpr').placeholder = "Optional: derivative (not used). Use 'delta' field for perturbation.";
+    } else {
+      intervals.style.display = 'none';
+      points.style.display = 'none';
+      extra.style.display = 'none';
+    }
+  }
+
+  methodSel.addEventListener('change', updateInputs);
+  window.addEventListener('load', updateInputs);
+
+  // Reset behavior: keep method selection and hide/show accordingly
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    setTimeout(updateInputs, 10);
+  });
+</script>
+</body>
+</html>
